@@ -133,6 +133,7 @@ static void * ShuffleThreadFunc(void * args)
 			}
 		}
 		Shuffle<std::pair<unsigned int, std::vector<unsigned long long>>>(advSendPortTimePairs);
+		//shuffle sent out messages to simulate network delay and random order at receivers
 
 		while (!advSendPortTimePairs.empty())
 		{
