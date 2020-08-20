@@ -313,7 +313,7 @@ static void * RecvrThreadFunc(void * args)
 			std::vector<unsigned long long> curVecClock = shared->vecClock.OnRecv(srcVecClock);
 
 			if (PRINT_CAUSAL_MESSAGES)
-				printf("Recv: %s (%s %s)\n", deliver[i].c_str(), ToStr<unsigned long long>(curVecClock).c_str(), ToStr<unsigned long long>(p.second).c_str());
+				printf("Causal: %s (%s %s)\n", deliver[i].c_str(), ToStr<unsigned long long>(curVecClock).c_str(), ToStr<unsigned long long>(p.second).c_str());
 		}
 		pthread_mutex_unlock(&shared->mutexMain);
 	}
