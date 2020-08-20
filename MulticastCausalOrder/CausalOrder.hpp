@@ -1,0 +1,83 @@
+#ifndef CAUSAL_ORDER_HPP
+#define CAUSAL_ORDER_HPP
+#include <queue>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <tuple>
+namespace DistributedAlgorithms
+{
+	class CausalOrder
+	{
+		typedef std::tuple<unsigned int, std::vector<unsigned long long>, std::string> SeqVecTuple;
+		struct Greater
+		{
+			bool operator()(const SeqVecTuple & a, const SeqVecTuple & b) const
+			{
+				return std::get<1>(a)[std::get<0>(a)] > std::get<1>(b)[std::get<0>(b)];
+			}
+		};
+		const unsigned int totalServer;
+		const unsigned int hostIdx;
+		std::vector<unsigned long long> channelSeq;
+		std::vector<std::priority_queue<SeqVecTuple, std::vector<SeqVecTuple>, Greater> > channelBuf;
+	public:
+		CausalOrder(unsigned int _totalServer, unsigned int _hostIdx) : totalServer(_totalServer), hostIdx(_hostIdx), channelSeq(_totalServer, 0), channelBuf(_totalServer, std::priority_queue<SeqVecTuple, std::vector<SeqVecTuple>, Greater>())
+		{
+
+		}
+		std::vector<unsigned long long> ChannelSeq() const
+		{
+			return channelSeq;
+		}
+		std::vector<unsigned long long> OnSend()
+		{
+			++channelSeq[hostIdx];
+			return channelSeq;
+		}
+		std::pair<bool,std::vector<unsigned long long>> OnRecv(unsigned int srcChannelIdx, const std::vector<unsigned long long> & srcChannelSeq, const std::string & srcChannelMsg, std::vector<std::string> & deliver)
+		{
+			bool delivered = false;
+			if (Deliver(srcChannelIdx, srcChannelSeq))
+			{
+				delivered = true;
+				deliver.push_back(srcChannelMsg);
+				std::vector<std::string> nxtDeliver;
+				do
+				{
+					nxtDeliver.clear();
+					for (auto i = 0; i < channelBuf.size(); ++i)
+					{
+						while (!channelBuf[i].empty() && 
+							Deliver(std::get<0>(channelBuf[i].top()), std::get<1>(channelBuf[i].top())))
+						{
+							nxtDeliver.push_back(std::get<2>(channelBuf[i].top()));
+							channelBuf[i].pop();
+						}
+					}
+					deliver.insert(deliver.end(), nxtDeliver.begin(), nxtDeliver.end());
+				}while(!nxtDeliver.empty());
+			}
+			else
+			{
+				channelBuf[srcChannelIdx].push({srcChannelIdx, srcChannelSeq, srcChannelMsg});
+			}
+			return {delivered, channelSeq};
+		}
+	private:
+		bool Deliver(unsigned int srcChannelIdx, const std::vector<unsigned long long> & srcChannelSeq)
+		{
+			if (channelSeq[srcChannelIdx]+1 == srcChannelSeq[srcChannelIdx]) //first condition
+			{
+				for (auto idx = 0; idx < channelSeq.size(); ++idx)
+					if (idx != srcChannelIdx)
+						if (!(channelSeq[idx] >= srcChannelSeq[idx])) //second condition
+							return false;
+				channelSeq[srcChannelIdx] = srcChannelSeq[srcChannelIdx]; //increment
+				return true;
+			}
+			return false;
+		}
+	};
+}
+#endif
