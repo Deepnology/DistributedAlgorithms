@@ -26,9 +26,20 @@ namespace DistributedAlgorithms
 		{
 
 		}
-		std::vector<unsigned long long> ChannelSeq() const
+		std::vector<unsigned long long> Get() const
 		{
 			return channelSeq;
+		}
+		std::string ToStr() const
+		{
+			std::string s;
+                        for (auto i = 0; i < channelSeq.size(); ++i)
+                        {
+                                s += std::to_string(channelSeq[i]);
+                                if (i != channelSeq.size()-1)
+                                        s += " ";
+                        }
+                        return s;
 		}
 		std::vector<unsigned long long> OnSend()
 		{
