@@ -313,7 +313,7 @@ static void * RecvrThreadFunc(void * args)
 			std::vector<unsigned long long> curVecClock = shared->vecClock.OnRecv(srcVecClock);
 
 			if (PRINT_CAUSAL_MESSAGES)
-				printf("Causal: %s (%s %s)\n", deliver[i].c_str(), ToStr<unsigned long long>(curVecClock).c_str(), ToStr<unsigned long long>(p.second).c_str());
+				printf("Causal<srcPort,srcTime,srcVecClock,srcCausal,(curVecClock,curCausal)>: %s (%s %s)\n", deliver[i].c_str(), ToStr<unsigned long long>(curVecClock).c_str(), ToStr<unsigned long long>(p.second).c_str());
 		}
 		pthread_mutex_unlock(&shared->mutexMain);
 	}
@@ -374,7 +374,7 @@ int main()
 	for (;;)
 	{
 		memset(buf, 0, sizeof(buf));
-		printf("Enter \"ready\" when all %d servers have started: ", TOTAL_SERVER);
+		printf("Enter \"ready\" to multicast messages when all %d servers have started: ", TOTAL_SERVER);
 		scanf("%s", buf);
 		if (strncmp(buf, "ready", strlen("ready")) == 0)
 		{
