@@ -50,6 +50,10 @@ namespace DistributedAlgorithms
 			++clocks[hostIdx];
 			return clocks;
 		}
+		std::vector<unsigned long long> Get() const
+		{
+			return clocks;
+		}
 		std::string ToStr() const
 		{
 			std::string s;
