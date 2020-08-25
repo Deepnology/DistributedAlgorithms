@@ -19,6 +19,7 @@
 #include <string>
 #include <queue>
 #include "../VectorClock/VectorClock.hpp"
+#include "ChandyLamportSnapshot.hpp"
 #define DEST_IP_ADDRESS "127.0.0.1"
 #define START_PORT 9000
 static bool PRINT_SEND_MESSAGES = false;
@@ -45,7 +46,8 @@ static void RandNanoSleep(long lower, long upper) //in nanoseconds
 	const struct timespec sleeptime({0, Rand(lower, upper)});
 	nanosleep(&sleeptime, NULL);
 }
-static void Shuffle(std::vector<unsigned int> & v)
+template<class T>
+static void Shuffle(std::vector<T> & v)
 {
 	for (auto i = 0; i < v.size(); ++i)
 	{
@@ -65,16 +67,30 @@ static std::string ToStr(const std::vector<T> & v)
 	}
 	return s;
 }
-struct Snapshot
+template<class T>
+static std::vector<T> StrToNumVec(const char * str, int base = 10)
 {
-	std::string state; //state of host process
-	std::vector<std::string> channelStates; //channel states from other processes to host process (except host)
-	Snapshot(unsigned int _totalServer): state(), channelStates(_totalServer, std::string())
-	{
-
-	}
-};
-static void PrintSnapshot(const struct Snapshot & s, unsigned int markerSrcPort, unsigned int serverPort)
+        std::vector<T> v;
+        const char * p = str;
+        for (;;) //extract nums separated by spaces
+        {
+                char * end;
+		T i;
+		if (typeid(T) == typeid(long))
+			i = strtol(p, &end, base);
+		else if (typeid(T) == typeid(long long))
+			i = strtoll(p, &end, base);
+		else if (typeid(T) == typeid(unsigned long))
+			i = strtoul(p, &end, base);
+		else if (typeid(T) == typeid(unsigned long long))
+                	i = strtoull(p, &end, base);
+                if (p == end) break;
+                v.push_back(i);
+                p = end;
+        }
+        return v;
+}
+static void PrintSnapshot(const DistributedAlgorithms::ChandyLamportSnapshot::Snapshot & s, unsigned int markerSrcPort, unsigned int serverPort)
 {
 	printf("\nSnapshot from %u:", markerSrcPort);
 	if (markerSrcPort == serverPort) printf(" (Initiator)\n");
@@ -91,16 +107,9 @@ struct Shared
 	const unsigned int totalServer;
 	const int serverSocketFD;
 	DistributedAlgorithms::VectorClock vecClock;
+	DistributedAlgorithms::ChandyLamportSnapshot snapshot;
 
-	bool initiateSnapshot;
-	std::vector<Snapshot> snapshots; //snapshot initiated by host process or other processes
-	std::vector<unsigned int> recvMarkerCount; //received marker count initiated by host process or other processes
-	std::vector<std::vector<std::string>> channelMsgs; //recorded channel msgs since snapshot from other processes
-	std::queue<std::vector<unsigned long long>> multicastMarkerQue; //<destPort,markerSrcPort,markerSrcTime,markerSrcVecClock> tuple to multicast when receiving first markers
-
-	Shared(unsigned int _serverPort, unsigned int _totalServer, int _serverSocketFD): serverPort(_serverPort), totalServer(_totalServer), serverSocketFD(_serverSocketFD), vecClock(_totalServer, _serverPort-START_PORT)
-	, initiateSnapshot(false)
-	, snapshots(_totalServer, Snapshot(_totalServer)), recvMarkerCount(_totalServer, 0), channelMsgs(_totalServer, std::vector<std::string>())
+	Shared(unsigned int _serverPort, unsigned int _totalServer, int _serverSocketFD): serverPort(_serverPort), totalServer(_totalServer), serverSocketFD(_serverSocketFD), vecClock(_totalServer, _serverPort-START_PORT), snapshot(_totalServer, _serverPort-START_PORT)
 	{
 		int mutexMainInit = pthread_mutex_init(&mutexMain, NULL);
 		if (mutexMainInit)
@@ -130,7 +139,7 @@ static void * SenderThreadFunc(void * args)
 
 	for (;;)
 	{
-		Shuffle(ports);
+		Shuffle<unsigned int>(ports);
 		for (auto i = 0; i < ports.size(); ++i) //randomly multicast messages
 		{
 			//sleep for random nanosec to simulate network delay (pthread cancellation point)
@@ -138,15 +147,15 @@ static void * SenderThreadFunc(void * args)
 
 			char buf[256];
 			memset(buf, 0, sizeof(buf));
-			unsigned destPort;
+			unsigned int destPort = ports[i];
 			
 			pthread_mutex_lock(&shared->mutexMain);
-			if (!shared->multicastMarkerQue.empty()) //multicast marker messages with first priority
+			std::vector<unsigned long long> markerMsgToSend;
+			if (shared->snapshot.OnSendMarkerMsg(markerMsgToSend)) //multicast marker messages with first priority
 			{
-				destPort = (unsigned int)shared->multicastMarkerQue.front()[0];
-				const unsigned int markerSrcPort = (unsigned int)shared->multicastMarkerQue.front()[1];
-				const std::string markerSrcTimeVecClk = ToStr<unsigned long long>(std::vector<unsigned long long>(shared->multicastMarkerQue.front().begin()+2, shared->multicastMarkerQue.front().end()));
-				shared->multicastMarkerQue.pop();
+				destPort = (unsigned int)markerMsgToSend[0] + START_PORT;
+				const unsigned int markerSrcPort = (const unsigned int)markerMsgToSend[1];
+				const std::string markerSrcTimeVecClk = ToStr<unsigned long long>(std::vector<unsigned long long>(markerMsgToSend.begin()+2, markerMsgToSend.end()));
 				shared->vecClock.OnSend();
 				std::string vc = shared->vecClock.ToStr();
 				sprintf(buf, "%u %llu %s %u %s", SERVER_PORT, GetTimeIn(1), vc.c_str(), markerSrcPort, markerSrcTimeVecClk.c_str()); //multicast marker message "curPort curTime curVecClock markerSrcPort markerSrcTime markerSrcVecClock"
@@ -214,17 +223,8 @@ static void * RecvrThreadFunc(void * args)
 		if (PRINT_RECV_MESSAGES)
 			printf("Recv: %d, %s, %u: %.*s\n", recvSize, inet_ntoa(clntAddr.sin_addr), ntohs(clntAddr.sin_port), recvSize, recvBuf);
 
-		std::vector<unsigned long long> recvNums;
-		const char * p = recvBuf;
-		for (;;) //extract nums separated by spaces
-		{
-			char * end;
-			unsigned long long i = strtoull(p, &end, 10);
-			if (p == end) break;
-			recvNums.push_back(i);
-			p = end;
-		}
-		const std::string extracted = ToStr<unsigned long long>(recvNums);
+		std::vector<unsigned long long> recvNums = StrToNumVec<unsigned long long>(recvBuf);
+		//const std::string extracted = ToStr<unsigned long long>(recvNums);
 		//printf("Extracted: %s\n:", extracted.c_str());
 
 		pthread_mutex_lock(&shared->mutexMain);
@@ -237,76 +237,24 @@ static void * RecvrThreadFunc(void * args)
 
 			if (recvNums.size() == (TOTAL_SERVER+2)*2) //marker message for snapshot from process markerSrcPort
 			{
-				//printf("Recv Marker: %s\n", extracted.c_str());
-				const unsigned int markerSrcPort = (unsigned int)recvNums[TOTAL_SERVER+2];
+				//printf("Recv Marker: %s: %llu\n", extracted.c_str(), GetTimeIn(1));
+				const unsigned int markerSrcPort = (const unsigned int)recvNums[TOTAL_SERVER+2];
 				const unsigned long long markerSrcTime = recvNums[TOTAL_SERVER+3];
 				const std::vector<unsigned long long> markerSrcVecClock(recvNums.begin()+TOTAL_SERVER+4, recvNums.end());
 
-				if (markerSrcPort == shared->serverPort) //snapshot-initiate process: record msgs from srcPort to host process since snapshot began
-				{
-					for (auto s : shared->channelMsgs[markerSrcPort-START_PORT])
-					{
-						unsigned int msgSrcPort = (unsigned int)strtoul(s.c_str(), NULL, 10);
-						shared->snapshots[markerSrcPort-START_PORT].channelStates[msgSrcPort-START_PORT] += s + ",";
-					}
-				}
-				else //non-snapshot-initiate process
-				{
-					if (shared->recvMarkerCount[markerSrcPort-START_PORT] == 0) //begin snapshot for process markerSrcPort
-					{
-						shared->snapshots[markerSrcPort-START_PORT].state = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record own state: "curTime curVecClock"
-						for (auto i = 0; i < shared->snapshots[markerSrcPort-START_PORT].channelStates.size(); ++i)
-							shared->snapshots[markerSrcPort-START_PORT].channelStates[i].clear(); //clear all channel states
-						shared->channelMsgs[markerSrcPort-START_PORT].clear(); //clear all channel msgs
-						//push markers to queue to multicast to all other processes except self
-						std::vector<unsigned int> markerPorts;
-						for (auto i = 0; i < shared->totalServer; ++i)
-							if (i+START_PORT != shared->serverPort)
-								markerPorts.push_back(i+START_PORT);
-						Shuffle(markerPorts);
-						for (auto & i : markerPorts)
-						{
-							std::vector<unsigned long long> v({i, markerSrcPort, markerSrcTime});
-							v.insert(v.end(), markerSrcVecClock.begin(), markerSrcVecClock.end());
-							shared->multicastMarkerQue.push(v);
-						}
-					}
-					else //record messages from srcPort to host process since snapshot began
-					{
-						for (auto s : shared->channelMsgs[markerSrcPort-START_PORT])
-						{
-							unsigned int msgSrcPort = (unsigned int)strtoul(s.c_str(), NULL, 10);
-							shared->snapshots[markerSrcPort-START_PORT].channelStates[msgSrcPort-START_PORT] += s + ",";
-						}
-					}
-				}
-
-				if (++shared->recvMarkerCount[markerSrcPort-START_PORT] == shared->totalServer-1) //terminate snapshot for markerSrcPort process
-				{
-					shared->recvMarkerCount[markerSrcPort-START_PORT] = 0; //reset
-					if (markerSrcPort == shared->serverPort) //snapshot-initiate process
-					{
-						shared->initiateSnapshot = false; //reset
-					}
-					else //non-snapshot-initiate process
-					{
-
-					}
-					PrintSnapshot(shared->snapshots[markerSrcPort-START_PORT], markerSrcPort, shared->serverPort);
-				}
+				std::vector<unsigned long long> markerSrcInfo({(unsigned long long)markerSrcPort});
+				markerSrcInfo.push_back(markerSrcTime);
+				markerSrcInfo.insert(markerSrcInfo.end(), markerSrcVecClock.begin(), markerSrcVecClock.end());
+				const std::string curState = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record own state: "curTime curVecClock"
+				auto p = shared->snapshot.OnRecvMarkerMsg(srcPort-START_PORT, markerSrcPort-START_PORT, markerSrcInfo, curState); //<terminated,snapshot>
+				if (p.first)
+					PrintSnapshot(p.second, markerSrcPort, SERVER_PORT);
 			}
 			else //non-marker message
 			{
 				//record message "srcPort srcTime srcVecClock curTime curVecClock"
-				std::string curMsg = std::to_string(srcPort) + " " + std::to_string(srcTime) + " " + ToStr<unsigned long long>(srcVecClock) + " " + std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr();
-
-				for (auto i = 0; i < shared->recvMarkerCount.size(); ++i)
-				{
-					if (shared->recvMarkerCount[i] != 0) //record message for processes that began snapshot
-					{
-						shared->channelMsgs[i].push_back(curMsg);
-					}
-				}
+				const std::string curMsg = std::to_string(srcPort) + " " + std::to_string(srcTime) + " " + ToStr<unsigned long long>(srcVecClock) + " " + std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr();
+				shared->snapshot.OnRecvNonMarkerMsg(srcPort-START_PORT, curMsg);
 			}
 		}
 		pthread_mutex_unlock(&shared->mutexMain);
@@ -375,25 +323,14 @@ int main()
 		if (strncmp(buf, "shot", strlen("shot")) != 0) continue;
 
 		pthread_mutex_lock(&shared->mutexMain);
-		if (shared->initiateSnapshot) //host process already began snapshot
-		{
+		const std::string curState = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record state of host process: "curTime curVecClock"
+		if (!shared->snapshot.Initiate(curState)) //host process already began snapshot
 			printf("Host process already began snaphot !!\n");
-			pthread_mutex_unlock(&shared->mutexMain);
-			continue;
-		}
-		shared->initiateSnapshot = true;
-		shared->snapshots[SERVER_PORT-START_PORT].state = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record state of host process: "curTime curVecClock"
-		for (auto & s : shared->snapshots[SERVER_PORT-START_PORT].channelStates)
-			s.clear(); //clear all channel states from other processes to host process to start recording
-		shared->channelMsgs[SERVER_PORT-START_PORT].clear(); //clear all channel msgs from other processes to host process to start recording
+		std::vector<unsigned int> markerDestIdx = shared->snapshot.MarkerMsgDestIdx();
 		pthread_mutex_unlock(&shared->mutexMain);
 
-		std::vector<unsigned int> ports;
-		for (unsigned int i = 0; i < TOTAL_SERVER; ++i)
-			if (i+START_PORT != SERVER_PORT) ports.push_back(i+START_PORT);
-		Shuffle(ports);
-
-		for (auto i = 0; i < ports.size(); ++i)
+		Shuffle<unsigned int>(markerDestIdx);
+		for (auto i = 0; i < markerDestIdx.size(); ++i)
 		{
 			//sleep for random nanosec to simulate network delay
 			RandNanoSleep(1000000, 999999999);
@@ -409,7 +346,7 @@ int main()
 			struct sockaddr_in destAddr;
 			memset(&destAddr, 0, sizeof(destAddr));
 			destAddr.sin_family = AF_INET;
-			destAddr.sin_port = htons(ports[i]);
+			destAddr.sin_port = htons(markerDestIdx[i]+START_PORT);
 			destAddr.sin_addr.s_addr = inet_addr(DEST_IP_ADDRESS);
 			int sentSize = sendto(serverSocketFD, buf, sizeof(buf), 0,
 					(struct sockaddr*)&destAddr, sizeof(struct sockaddr));
