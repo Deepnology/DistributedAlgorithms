@@ -18,43 +18,13 @@
 #include <vector>
 #include <string>
 #include <queue>
+#include "../CustomUtility/CustomUtility.hpp"
 #include "VectorClock.hpp"
 #define DEST_IP_ADDRESS "127.0.0.1"
 #define START_PORT 9000
 #define ADVANCED_SEND_COUNT 8
 static bool PRINT_SEND_MESSAGES = false;
 static bool PRINT_RECV_MESSAGES = false;
-static long Rand(long lower, long upper)
-{
-	return rand() % (upper-lower+1) + lower;
-}
-static unsigned long long GetTimeIn(int precision)//0: sec, 1: millisec, 2: microsec, 3: nanosec
-{
-	struct timespec spec;
-	clock_gettime(CLOCK_REALTIME, &spec);
-	switch (precision)
-	{
-		case 0: return (unsigned long long)spec.tv_sec + (unsigned long long)spec.tv_nsec / 1000000000;//sec
-		case 1: return (unsigned long long)spec.tv_sec * 1000 + (unsigned long long)spec.tv_nsec / 1000000;//millisec
-		case 2: return (unsigned long long)spec.tv_sec * 1000000 + (unsigned long long)spec.tv_nsec / 1000;//microsec
-		case 3: return (unsigned long long)spec.tv_sec * 1000000000 + (unsigned long long)spec.tv_nsec;//nanosec
-		default: return (unsigned long long)spec.tv_sec * 1000000000 + (unsigned long long)spec.tv_nsec;//nanosec
-	}
-}
-static void RandNanoSleep(long lower, long upper) //in nanoseconds
-{
-	const struct timespec sleeptime({0, Rand(lower, upper)});
-	nanosleep(&sleeptime, NULL);
-}
-template<class T>
-static void Shuffle(std::vector<T> & v)
-{
-	for (auto i = 0; i < v.size(); ++i)
-	{
-		auto j = rand() % (i+1);
-		std::swap(v[i], v[j]);
-	}
-}
 struct Shared
 {
 	pthread_mutex_t mutexMain; //between main thread, recvr thread, and shuffle thread
@@ -124,15 +94,15 @@ static void * ShuffleThreadFunc(void * args)
 		{
 			for (auto j = 0; j < ports.size(); ++j)
 			{
-				RandNanoSleep(1000001, 1000009);
+				CustomUtility::RandNanoSleep(1000001, 1000009);
 				pthread_mutex_lock(&shared->mutexMain);
 				std::vector<unsigned long long> vc = shared->vecClock.OnSend();
 				pthread_mutex_unlock(&shared->mutexMain);
-				vc.insert(vc.begin(), GetTimeIn(1));
+				vc.insert(vc.begin(), CustomUtility::GetTimeIn(1));
 				advSendPortTimePairs.push_back({ports[j], vc});
 			}
 		}
-		Shuffle<std::pair<unsigned int, std::vector<unsigned long long>>>(advSendPortTimePairs);
+		CustomUtility::Shuffle<std::pair<unsigned int, std::vector<unsigned long long>>>(advSendPortTimePairs);
 		//shuffle sent out messages to simulate network delay and random order at receivers
 
 		while (!advSendPortTimePairs.empty())
@@ -143,7 +113,7 @@ static void * ShuffleThreadFunc(void * args)
 				pthread_cond_wait(&shared->condShuffleSendFull, &shared->mutexShuffleSend);
 			shared->shuffleSendChannels.push_back(advSendPortTimePairs.back());
 			advSendPortTimePairs.pop_back();
-			Shuffle<std::pair<unsigned int, std::vector<unsigned long long>>>(shared->shuffleSendChannels);
+			CustomUtility::Shuffle<std::pair<unsigned int, std::vector<unsigned long long>>>(shared->shuffleSendChannels);
 			pthread_cond_signal(&shared->condShuffleSendEmpty);
 			pthread_mutex_unlock(&shared->mutexShuffleSend);
 		}
@@ -181,7 +151,7 @@ static void * SenderThreadFunc(void * args)
 		pthread_mutex_unlock(&shared->mutexShuffleSend);
 		
 		//sleep for random nanosec to simulate network delay (pthread cancellation point)
-		RandNanoSleep(1000000, 999999999);
+		CustomUtility::RandNanoSleep(1000000, 999999999);
 
 		char buf[256];
 		memset(buf, 0, sizeof(buf));
@@ -240,24 +210,12 @@ static void * RecvrThreadFunc(void * args)
 		}
 
 		//sleep for random nanosec to simulate network delay (pthread cancellation point)
-		RandNanoSleep(1000000, 999999999);
+		CustomUtility::RandNanoSleep(1000000, 999999999);
 
 		if (PRINT_RECV_MESSAGES)
 			printf("Recv: %d, %s, %u: %.*s\n", recvSize, inet_ntoa(clntAddr.sin_addr), ntohs(clntAddr.sin_port), recvSize, recvBuf);
 
-		std::vector<unsigned long long> recvNums;
-		std::string extracted;
-		const char * p = recvBuf;
-		for (;;) //extract nums separated by spaces
-		{
-			char * end;
-			unsigned long long i = strtoull(p, &end, 10);
-			if (p == end) break;
-			recvNums.push_back(i);
-			extracted += std::to_string(i) + " ";
-			p = end;
-		}
-		//printf("Extracted: %s\n:", extracted.c_str());
+		std::vector<unsigned long long> recvNums = CustomUtility::StrToNumVec<unsigned long long>(recvBuf);
 
 		pthread_mutex_lock(&shared->mutexMain);
 		unsigned int srcPort = (unsigned int)recvNums[0];

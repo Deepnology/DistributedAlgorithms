@@ -18,78 +18,13 @@
 #include <vector>
 #include <string>
 #include <queue>
+#include "../CustomUtility/CustomUtility.hpp"
 #include "../VectorClock/VectorClock.hpp"
 #include "ChandyLamportSnapshot.hpp"
 #define DEST_IP_ADDRESS "127.0.0.1"
 #define START_PORT 9000
 static bool PRINT_SEND_MESSAGES = false;
 static bool PRINT_RECV_MESSAGES = false;
-static long Rand(long lower, long upper)
-{
-	return rand() % (upper-lower+1) + lower;
-}
-static unsigned long long GetTimeIn(int precision)//0: sec, 1: millisec, 2: microsec, 3: nanosec
-{
-	struct timespec spec;
-	clock_gettime(CLOCK_REALTIME, &spec);
-	switch (precision)
-	{
-		case 0: return (unsigned long long)spec.tv_sec + (unsigned long long)spec.tv_nsec / 1000000000;//sec
-		case 1: return (unsigned long long)spec.tv_sec * 1000 + (unsigned long long)spec.tv_nsec / 1000000;//millisec
-		case 2: return (unsigned long long)spec.tv_sec * 1000000 + (unsigned long long)spec.tv_nsec / 1000;//microsec
-		case 3: return (unsigned long long)spec.tv_sec * 1000000000 + (unsigned long long)spec.tv_nsec;//nanosec
-		default: return (unsigned long long)spec.tv_sec * 1000000000 + (unsigned long long)spec.tv_nsec;//nanosec
-	}
-}
-static void RandNanoSleep(long lower, long upper) //in nanoseconds
-{
-	const struct timespec sleeptime({0, Rand(lower, upper)});
-	nanosleep(&sleeptime, NULL);
-}
-template<class T>
-static void Shuffle(std::vector<T> & v)
-{
-	for (auto i = 0; i < v.size(); ++i)
-	{
-		auto j = rand() % (i+1);
-		std::swap(v[i], v[j]);
-	}
-}
-template<class T>
-static std::string ToStr(const std::vector<T> & v)
-{
-	std::string s;
-	for (auto i = 0; i < v.size(); ++i)
-	{
-		s += std::to_string(v[i]);
-		if (i != v.size()-1)
-			s += " ";
-	}
-	return s;
-}
-template<class T>
-static std::vector<T> StrToNumVec(const char * str, int base = 10)
-{
-        std::vector<T> v;
-        const char * p = str;
-        for (;;) //extract nums separated by spaces
-        {
-                char * end;
-		T i;
-		if (typeid(T) == typeid(long))
-			i = strtol(p, &end, base);
-		else if (typeid(T) == typeid(long long))
-			i = strtoll(p, &end, base);
-		else if (typeid(T) == typeid(unsigned long))
-			i = strtoul(p, &end, base);
-		else if (typeid(T) == typeid(unsigned long long))
-                	i = strtoull(p, &end, base);
-                if (p == end) break;
-                v.push_back(i);
-                p = end;
-        }
-        return v;
-}
 static void PrintSnapshot(const DistributedAlgorithms::ChandyLamportSnapshot::Snapshot & s, unsigned int markerSrcPort, unsigned int serverPort)
 {
 	printf("\nSnapshot from %u:", markerSrcPort);
@@ -139,11 +74,11 @@ static void * SenderThreadFunc(void * args)
 
 	for (;;)
 	{
-		Shuffle<unsigned int>(ports);
+		CustomUtility::Shuffle<unsigned int>(ports);
 		for (auto i = 0; i < ports.size(); ++i) //randomly multicast messages
 		{
 			//sleep for random nanosec to simulate network delay (pthread cancellation point)
-			RandNanoSleep(1000000, 999999999);
+			CustomUtility::RandNanoSleep(1000000, 999999999);
 
 			char buf[256];
 			memset(buf, 0, sizeof(buf));
@@ -155,10 +90,10 @@ static void * SenderThreadFunc(void * args)
 			{
 				destPort = (unsigned int)markerMsgToSend[0] + START_PORT;
 				const unsigned int markerSrcPort = (const unsigned int)markerMsgToSend[1];
-				const std::string markerSrcTimeVecClk = ToStr<unsigned long long>(std::vector<unsigned long long>(markerMsgToSend.begin()+2, markerMsgToSend.end()));
+				const std::string markerSrcTimeVecClk = CustomUtility::ToStr<unsigned long long>(std::vector<unsigned long long>(markerMsgToSend.begin()+2, markerMsgToSend.end()));
 				shared->vecClock.OnSend();
 				std::string vc = shared->vecClock.ToStr();
-				sprintf(buf, "%u %llu %s %u %s", SERVER_PORT, GetTimeIn(1), vc.c_str(), markerSrcPort, markerSrcTimeVecClk.c_str()); //multicast marker message "curPort curTime curVecClock markerSrcPort markerSrcTime markerSrcVecClock"
+				sprintf(buf, "%u %llu %s %u %s", SERVER_PORT, CustomUtility::GetTimeIn(1), vc.c_str(), markerSrcPort, markerSrcTimeVecClk.c_str()); //multicast marker message "curPort curTime curVecClock markerSrcPort markerSrcTime markerSrcVecClock"
 
 				--i; //repeat
 			}
@@ -167,7 +102,7 @@ static void * SenderThreadFunc(void * args)
 				destPort = ports[i];
 				shared->vecClock.OnSend();
 				std::string vc = shared->vecClock.ToStr();
-				sprintf(buf, "%u %llu %s", SERVER_PORT, GetTimeIn(1), vc.c_str()); //multicast message "curPort curTime curVecClock"
+				sprintf(buf, "%u %llu %s", SERVER_PORT, CustomUtility::GetTimeIn(1), vc.c_str()); //multicast message "curPort curTime curVecClock"
 			}
 			pthread_mutex_unlock(&shared->mutexMain);
 
@@ -218,12 +153,12 @@ static void * RecvrThreadFunc(void * args)
 		}
 
 		//sleep for random nanosec to simulate network delay (pthread cancellation point)
-		RandNanoSleep(1000000, 999999999);
+		CustomUtility::RandNanoSleep(1000000, 999999999);
 
 		if (PRINT_RECV_MESSAGES)
 			printf("Recv: %d, %s, %u: %.*s\n", recvSize, inet_ntoa(clntAddr.sin_addr), ntohs(clntAddr.sin_port), recvSize, recvBuf);
 
-		std::vector<unsigned long long> recvNums = StrToNumVec<unsigned long long>(recvBuf);
+		std::vector<unsigned long long> recvNums = CustomUtility::StrToNumVec<unsigned long long>(recvBuf);
 		//const std::string extracted = ToStr<unsigned long long>(recvNums);
 		//printf("Extracted: %s\n:", extracted.c_str());
 
@@ -245,7 +180,7 @@ static void * RecvrThreadFunc(void * args)
 				std::vector<unsigned long long> markerSrcInfo({(unsigned long long)markerSrcPort});
 				markerSrcInfo.push_back(markerSrcTime);
 				markerSrcInfo.insert(markerSrcInfo.end(), markerSrcVecClock.begin(), markerSrcVecClock.end());
-				const std::string curState = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record own state: "curTime curVecClock"
+				const std::string curState = std::to_string(CustomUtility::GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record own state: "curTime curVecClock"
 				auto p = shared->snapshot.OnRecvMarkerMsg(srcPort-START_PORT, markerSrcPort-START_PORT, markerSrcInfo, curState); //<terminated,snapshot>
 				if (p.first)
 					PrintSnapshot(p.second, markerSrcPort, SERVER_PORT);
@@ -253,7 +188,7 @@ static void * RecvrThreadFunc(void * args)
 			else //non-marker message
 			{
 				//record message "srcPort srcTime srcVecClock curTime curVecClock"
-				const std::string curMsg = std::to_string(srcPort) + " " + std::to_string(srcTime) + " " + ToStr<unsigned long long>(srcVecClock) + " " + std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr();
+				const std::string curMsg = std::to_string(srcPort) + " " + std::to_string(srcTime) + " " + CustomUtility::ToStr<unsigned long long>(srcVecClock) + " " + std::to_string(CustomUtility::GetTimeIn(1)) + " " + shared->vecClock.ToStr();
 				shared->snapshot.OnRecvNonMarkerMsg(srcPort-START_PORT, curMsg);
 			}
 		}
@@ -323,23 +258,23 @@ int main()
 		if (strncmp(buf, "shot", strlen("shot")) != 0) continue;
 
 		pthread_mutex_lock(&shared->mutexMain);
-		const std::string curState = std::to_string(GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record state of host process: "curTime curVecClock"
+		const std::string curState = std::to_string(CustomUtility::GetTimeIn(1)) + " " + shared->vecClock.ToStr(); //record state of host process: "curTime curVecClock"
 		if (!shared->snapshot.Initiate(curState)) //host process already began snapshot
 			printf("Host process already began snaphot !!\n");
 		std::vector<unsigned int> markerDestIdx = shared->snapshot.MarkerMsgDestIdx();
 		pthread_mutex_unlock(&shared->mutexMain);
 
-		Shuffle<unsigned int>(markerDestIdx);
+		CustomUtility::Shuffle<unsigned int>(markerDestIdx);
 		for (auto i = 0; i < markerDestIdx.size(); ++i)
 		{
 			//sleep for random nanosec to simulate network delay
-			RandNanoSleep(1000000, 999999999);
+			CustomUtility::RandNanoSleep(1000000, 999999999);
 			memset(buf, 0, sizeof(buf));
 
 			pthread_mutex_lock(&shared->mutexMain);
 			shared->vecClock.OnSend();
 			std::string vc = shared->vecClock.ToStr();
-			sprintf(buf, "%u %llu %s %u %llu %s", SERVER_PORT, GetTimeIn(1), vc.c_str(), SERVER_PORT, GetTimeIn(1), vc.c_str());
+			sprintf(buf, "%u %llu %s %u %llu %s", SERVER_PORT, CustomUtility::GetTimeIn(1), vc.c_str(), SERVER_PORT, CustomUtility::GetTimeIn(1), vc.c_str());
 			//multicast marker message "curPort curTime curVecClock curPort curTime curVecClock" to other processes
 			pthread_mutex_unlock(&shared->mutexMain);
 
