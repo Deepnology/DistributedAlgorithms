@@ -7,6 +7,38 @@
 #include <tuple>
 namespace DistributedAlgorithms
 {
+	namespace Causal
+	{
+		template<class T>
+		bool Equal(const std::vector<T> & lhs, const std::vector<T> & rhs)
+		{
+			if (lhs.size() != rhs.size()) return false;
+			for (auto i = 0; i < lhs.size(); ++i)
+				if (lhs[i] != rhs[i]) return false;
+			return true;
+		}
+		template<class T>
+		bool LessEqual(const std::vector<T> & lhs, const std::vector<T> & rhs)
+		{
+			if (lhs.size() != rhs.size()) return false;
+			for (auto i = 0; i < lhs.size(); ++i)
+				if (!(lhs[i] <= rhs[i])) return false;
+			return true;
+		}
+		template<class T>
+		bool Less(const std::vector<T> & lhs, const std::vector<T> & rhs) //e.g., causally related
+		{
+			if (!LessEqual(lhs, rhs)) return false;
+			for (auto i = 0; i < lhs.size(); ++i)
+				if (lhs[i] < rhs[i]) return true;
+			return false;
+		}
+		template<class T>
+		bool Concurrent(const std::vector<T> & lhs, const std::vector<T> & rhs) //e.g., NOT causally related
+		{
+			return !LessEqual(lhs, rhs) && !LessEqual(rhs, lhs);
+		}
+	}
 	class CausalOrder
 	{
 		typedef std::tuple<unsigned int, std::vector<unsigned long long>, std::string> SeqVecTuple;
