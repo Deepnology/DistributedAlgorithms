@@ -28,15 +28,23 @@ namespace DistributedAlgorithms
 		template<class T>
 		bool Less(const std::vector<T> & lhs, const std::vector<T> & rhs) //e.g., causally related
 		{
-			if (!LessEqual(lhs, rhs)) return false;
-			for (auto i = 0; i < lhs.size(); ++i)
-				if (lhs[i] < rhs[i]) return true;
-			return false;
+			return LessEqual(lhs, rhs) && !Equal(lhs, rhs);
 		}
 		template<class T>
 		bool Concurrent(const std::vector<T> & lhs, const std::vector<T> & rhs) //e.g., NOT causally related
 		{
 			return !LessEqual(lhs, rhs) && !LessEqual(rhs, lhs);
+
+			/*
+			equivalent to 
+			!Equal(lhs, rhs) && !Less(lhs, rhs) && !Less(rhs, lhs)
+
+			= !Equal(lhs, rhs) && !(LessEqual(lhs, rhs) && !Equal(lhs, rhs)) && !(LessEqual(rhs, lhs) && !Equal(rhs, lhs))
+			= !Equal(lhs, rhs) && (!LessEqual(lhs, rhs) || Equal(lhs, rhs)) && (!LessEqual(rhs, lhs) || Equal(rhs, lhs))
+			NOTE: "|| (!Equal(lhs,rhs)&&Equal(lhs,rhs))" = "|| false"
+			= (!Equal(lhs, rhs) && !LessEqual(lhs, rhs)) && (!Equal(lhs, rhs) && !LessEqual(rhs, lhs))
+			= !LessEqual(lhs, rhs) && !LessEqual(rhs, lhs)
+			*/
 		}
 	}
 	class CausalOrder
