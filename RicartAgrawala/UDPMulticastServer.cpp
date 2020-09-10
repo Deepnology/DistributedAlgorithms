@@ -27,15 +27,12 @@ static bool PRINT_SEND_MESSAGES = false;
 static bool PRINT_RECV_MESSAGES = false;
 struct Shared
 {
-	pthread_mutex_t mutexMain; //between main thread, recvr thread, sender thread, and access cs thread
+	pthread_mutex_t mutexMain; //between main thread, recvr thread and sender thread
 	const unsigned int serverPort;
 	const unsigned int totalServer;
 	const int serverSocketFD;
 	DistributedAlgorithms::VectorClock vecClock;
 	DistributedAlgorithms::RicartAgrawala RA;
-
-	pthread_mutex_t mutexDistributedCS;
-	pthread_cond_t condDistributedCS;
 
 	Shared(unsigned int _serverPort, unsigned int _totalServer, int _serverSocketFD): serverPort(_serverPort), totalServer(_totalServer), serverSocketFD(_serverSocketFD), vecClock(_totalServer, _serverPort-START_PORT), RA(_totalServer, _serverPort-START_PORT)
 	{
@@ -43,18 +40,6 @@ struct Shared
 		if (mutexMainInit)
 		{
 			printf("pthread_mutex_init failed: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		int mutexDistributedCSInit = pthread_mutex_init(&mutexDistributedCS, NULL);
-		if (mutexDistributedCSInit)
-		{
-			printf("pthread_mutex_init failed: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		int condDistributedCSInit = pthread_cond_init(&condDistributedCS, NULL);
-		if (condDistributedCSInit)
-		{
-			printf("pthread_cond_init failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -99,7 +84,7 @@ static void * SenderThreadFunc(void * args)
 				const std::string vecClockAtRequest = CustomUtility::ToStr<unsigned long long>(std::vector<unsigned long long>(requestReplyMsgToSend.begin()+3, requestReplyMsgToSend.end()));
 				shared->vecClock.OnSend();
 				std::string vc = shared->vecClock.ToStr();
-				sprintf(buf, "%u %u %s %s", curPort, curIsRequest, vc.c_str(), vecClockAtRequest.c_str()); //multicast marker message "curPort curIsRequest curVecClock vecClockAtRequest"
+				sprintf(buf, "%u %u %s %s", curPort, curIsRequest, vc.c_str(), vecClockAtRequest.c_str()); //multicast request/reply message "curPort curIsRequest curVecClock vecClockAtRequest"
 
 				--i; //repeat
 			}
@@ -186,7 +171,7 @@ static void * RecvrThreadFunc(void * args)
 				{
 					printf("\n>>>Enters Distributed CS @ %s (%s)\n", CustomUtility::ToStr<unsigned long long>(curVecClock).c_str(), CustomUtility::ToStr<unsigned long long>(vecClockAtRequest).c_str());
 				}
-				else //stil collecting replys toward (totalServer-1)
+				else //still collecting replys toward (totalServer-1)
 				{
 
 				}

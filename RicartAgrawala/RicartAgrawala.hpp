@@ -71,7 +71,7 @@ namespace DistributedAlgorithms
 				if (state == HELD || 
 				(state == WANTED && 
 				 (DistributedAlgorithms::Causal::Less<unsigned long long>(vecClockAtRequest, srcVecClockAtRequest) ||
-				  (!DistributedAlgorithms::Causal::Less<unsigned long long>(srcVecClockAtRequest, vecClockAtRequest) && hostIdx < srcIdx))
+				  (!DistributedAlgorithms::Causal::Less<unsigned long long>(srcVecClockAtRequest, vecClockAtRequest) && hostIdx < srcIdx)) //for concurrent requests, use process's index to break the tie
 				  )) //add request to deferReplyQue to reply when exit
 				{
 					std::vector<unsigned long long> v({srcIdx, hostIdx, 0});
@@ -88,7 +88,7 @@ namespace DistributedAlgorithms
 			else //collect (totalServer-1) replys from other hosts for this host's request
 			{
 				recvdReply.insert(srcIdx);
-				if (recvdReply.size() == totalServer-1) //now enters CS: change state to HELD
+				if (recvdReply.size() == totalServer-1) //now enters distributed CS: change state to HELD
 				{
 					state = HELD;
 					vecClockAtRecvAll = curVecClock;
