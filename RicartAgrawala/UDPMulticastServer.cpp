@@ -164,7 +164,7 @@ static void * RecvrThreadFunc(void * args)
 			{
 
 			}
-			else //request or reply messages (srcIsRequest==0||srcIsRequest==1)
+			else //request or reply messages (srcIsRequest==1||srcIsRequest==0)
 			{
 				const std::vector<unsigned long long> vecClockAtRequest(recvNums.begin()+2+TOTAL_SERVER, recvNums.end());
 				if (shared->RA.OnRecv(srcPort-START_PORT, srcIsRequest, vecClockAtRequest, curVecClock)) //now enters CS
