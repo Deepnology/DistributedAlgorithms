@@ -5,6 +5,14 @@
 #include <algorithm>
 namespace DistributedAlgorithms
 {
+	/*
+	System Model for Chandy-Lamport Snapshot Algorithm:
+	1. N processes in the system.
+	2. There are two uni-directional communication channels between each ordered process pair: Pj -> Pi and Pi -> Pj.
+	3. Communication channels are FIFO-ordered.
+	4. No failure.
+	5. All messages arrive intact, and are not duplicated.
+	*/
 	class ChandyLamportSnapshot
 	{
 	public:
