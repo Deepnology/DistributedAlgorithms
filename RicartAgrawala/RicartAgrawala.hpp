@@ -9,6 +9,12 @@
 #include "../MulticastCausalOrder/CausalOrder.hpp"
 namespace DistributedAlgorithms
 {
+	/*
+	System Model for Ricart-Agrawala Algorithm:
+	1. Each pair of processes is connected by reliable channels (such as TCP).
+	2. Messages are eventually delivered to recipient, and in FIFO (First In First Out) order.
+	3. Processes do not fail.
+	*/
 	class RicartAgrawala
 	{
 	public:
